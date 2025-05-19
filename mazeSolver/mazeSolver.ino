@@ -5,13 +5,16 @@
 #include <Wire.h>
 #include "EEPROM.h"
 
-//Macros for motor speeds
-#define LRSpeeds0 80
-#define LRDelay0 180
-#define BSpeeds0 100
-#define BDelay0 280
+// Updated turning parameters - starting point for calibration
+#define LRSpeeds0 90        // Reduced from 100 for better control
+#define LRDelay0 225        // Increased from 200 for complete turns
+#define BSpeeds0 130        // Reduced from 150
+#define BDelay0 375         // Increased from 350 for complete U-turns
 
-
+// Curve handling parameters
+#define MILD_CURVE_SPEED 100  // Speed for mild curves
+#define SHARP_CURVE_SPEED 80  // Speed for sharper curves
+#define CURVE_SLOWDOWN_THRESHOLD 800  // Proportional threshold to reduce speed
 
 #define PWMA   6           //Left Motor Speed pin (ENA)
 #define AIN2   A0          //Motor-L forward (IN2).
@@ -147,7 +150,7 @@ void setup() {
      digitalWrite(AIN1,LOW);
      digitalWrite(BIN1,LOW); 
      digitalWrite(BIN2,HIGH);  
-      SetSpeeds(50,-50);
+      SetSpeeds(70,-70);
     }
     else
     {
@@ -155,7 +158,7 @@ void setup() {
      digitalWrite(AIN1,HIGH);
      digitalWrite(BIN1,HIGH); 
      digitalWrite(BIN2,LOW);  
-        SetSpeeds(-50,50);
+        SetSpeeds(-70,70);
     }
     trs.calibrate();       // reads all sensors 100 times
   }
@@ -194,86 +197,219 @@ void setup() {
   delay(500);
 }
 
-// This function, causes the 3pi to follow a segment of the maze until
-// it detects an intersection, a dead end, or the finish.
+// PID constants - tune these values for better curved line following
+#define KP 0.25   // Proportional constant (previously 1/20 = 0.05)
+#define KI 0.0001 // Integral constant (previously 1/10000 = 0.0001)
+#define KD 2.0    // Derivative constant (previously 10)
+
+// Threshold values for sensors
+#define LINE_THRESHOLD 300      // Minimum value to consider as line
+#define INTERSECTION_THRESHOLD 500 // Threshold for detecting an intersection
+#define CURVE_DETECTION_THRESHOLD 400 // Threshold to detect curve
+
+// Function to follow a segment of line until intersection or dead end
 void follow_segment()
 {
   int last_proportional = 0;
-  long integral=0;
+  long integral = 0;
+  float avg_position = 2000; // Start assuming we're centered
+  
+  // For average sensor readings
+  const int readings_count = 3;
+  unsigned int last_positions[readings_count] = {2000, 2000, 2000};
+  int reading_index = 0;
+  
+  // For dynamic speed control
+  int base_speed;
+  int curve_speed_reduction = 0;
+  int max_curve_reduction = 40;
 
   while(1)
   {
-    // Normally, we will be following a line.  The code below is
-    // similar to the 3pi-linefollower-pid example, but the maximum
-    // speed is turned down to 60 for reliability.
-
-    // Get the position of the line.
-    unsigned int position = trs.readLine(sensorValues);
-
-    // The "proportional" term should be 0 when we are on the line.
-    int proportional = ((int)position) - 2000;
-
-    // Compute the derivative (change) and integral (sum) of the
-    // position.
+    // Get the position of the line
+    unsigned int raw_position = trs.readLine(sensorValues);
+    
+    // Simple moving average filter for position
+    last_positions[reading_index] = raw_position;
+    reading_index = (reading_index + 1) % readings_count;
+    
+    unsigned long position_sum = 0;
+    for(int i = 0; i < readings_count; i++) {
+      position_sum += last_positions[i];
+    }
+    position = position_sum / readings_count;
+    
+    // Exponential smoothing for more stable position
+    avg_position = 0.7 * avg_position + 0.3 * position;
+    
+    // The "proportional" term should be 0 when we are on the line
+    int proportional = ((int)avg_position) - 2000;
+    
+    // Detect if we're in a curve based on sensor readings
+    bool in_curve = false;
+    int active_sensors = 0;
+    for(int i = 0; i < NUM_SENSORS; i++) {
+      if(sensorValues[i] > CURVE_DETECTION_THRESHOLD) {
+        active_sensors++;
+      }
+    }
+    
+    // Detect a curve by checking pattern and distribution of active sensors
+    if(active_sensors >= 2 && abs(proportional) > 500) {
+      in_curve = true;
+      // Gradually increase curve_speed_reduction up to max_curve_reduction
+      if(curve_speed_reduction < max_curve_reduction) {
+        curve_speed_reduction += 2;
+      }
+    } else {
+      // Gradually return to normal speed
+      if(curve_speed_reduction > 0) {
+        curve_speed_reduction--;
+      }
+    }
+    
+    // Compute the derivative (change) and integral (sum) of the position
     int derivative = proportional - last_proportional;
     integral += proportional;
-
-    // Remember the last position.
+    
+    // Prevent integral windup by limiting its range
+    if(integral > 20000) integral = 20000;
+    if(integral < -20000) integral = -20000;
+    
+    // If we're centered on the line, decay the integral term
+    if(abs(proportional) < 100) {
+      integral = integral * 0.8;
+    }
+    
+    // Remember the last position
     last_proportional = proportional;
-
-    // Compute the difference between the two motor power settings,
-    // m1 - m2.  If this is a positive number the robot will turn
-    // to the left.  If it is a negative number, the robot will
-    // turn to the right, and the magnitude of the number determines
-    // the sharpness of the turn.
-    int power_difference = proportional/20 + integral/10000 + derivative*10;
-
-    // Compute the actual motor settings.  We never set either motor
-    // to a negative value.
-    int maximum;
-    if (solved)
-    {
-      maximum = 100; // the maximum speed
-    }else{
-      maximum = 70; // learning speed
+    
+    // Compute the difference between the two motor power settings
+    int power_difference = (proportional * KP) + (integral * KI) + (derivative * KD);
+    
+    // Determine base speed - reduce speed in curves
+    if(solved) {
+      base_speed = 150 - curve_speed_reduction;  // Maximum speed when solved
+    } else {
+      base_speed = 120 - curve_speed_reduction;  // Learning speed
     }
-
-    if (power_difference > maximum)
+    
+    // Limit the power difference to prevent extreme turns
+    int maximum = base_speed;
+    if(power_difference > maximum)
       power_difference = maximum;
-    if (power_difference < -maximum)
-      power_difference = - maximum;
+    if(power_difference < -maximum)
+      power_difference = -maximum;
+    
+    // Apply power difference to motors
+    if(power_difference < 0) {
+      analogWrite(PWMA, base_speed + power_difference);
+      analogWrite(PWMB, base_speed);
+    } else {
+      analogWrite(PWMA, base_speed);
+      analogWrite(PWMB, base_speed - power_difference);
+    }
+    
+    // Check for intersections or dead ends only if enough time has passed
+    // This prevents multiple triggers when approaching intersections
+    if(millis() - lasttime > 100) {
+      // Check if all sensors moved away from the line (dead end)
+      bool all_sensors_off_line = true;
+      for(int i = 1; i <= 3; i++) {
+        if(sensorValues[i] > LINE_THRESHOLD) {
+          all_sensors_off_line = false;
+          break;
+        }
+      }
+      
+      if(all_sensors_off_line) {
+        // No line visible ahead - must be a dead end
+        SetSpeeds(0, 0);
+        return;
+      }
+      
+      // Improved intersection detection
+      // Only trigger on outer sensors when they're significantly above threshold
+      // and we're not in a gradual curve (which would activate only one outer sensor)
+      if((sensorValues[0] > INTERSECTION_THRESHOLD && (sensorValues[1] > LINE_THRESHOLD || sensorValues[4] > INTERSECTION_THRESHOLD)) || 
+         (sensorValues[4] > INTERSECTION_THRESHOLD && (sensorValues[3] > LINE_THRESHOLD || sensorValues[0] > INTERSECTION_THRESHOLD))) {
+        // Found an intersection
+        SetSpeeds(0, 0);
+        return;
+      }
+    }
+  }
+}
 
-    if (power_difference < 0)
-    {
-      analogWrite(PWMA,maximum + power_difference);
-      analogWrite(PWMB,maximum);
-    }
-    else
-    {
-      analogWrite(PWMA,maximum);
-      analogWrite(PWMB,maximum - power_difference);
-    }
+// Improved turn function with more precise control
+void turn(unsigned char dir)
+{
+  // Common turn setup
+  SetSpeeds(0, 0);
+  delay(50);  // Brief stop before turning for stability
+  
+  // Visual feedback of current turn
+  display.clearDisplay();
+  display.setTextSize(3);
+  display.setTextColor(WHITE);
+  display.setCursor(50,25);
+  display.println((char)dir);
+  display.display();
+  
+  // Different speeds for learning vs solved mode
+  int turn_speed = !solved ? LRSpeeds0 : LRSpeeds0 * 1.1;  // Slightly faster when solved
+  int turn_delay = !solved ? LRDelay0 : LRDelay0 * 0.9;    // Slightly shorter delay when solved
+  int uturn_speed = !solved ? BSpeeds0 : BSpeeds0 * 1.1;
+  int uturn_delay = !solved ? BDelay0 : BDelay0 * 0.9;
+  
+  switch(dir)
+  {
+  case 'L':
+    // Turn left with adjusted parameters
+    SetSpeeds(-turn_speed, turn_speed);
+    delay(turn_delay);
+    break;
+  case 'R':
+    // Turn right with adjusted parameters
+    SetSpeeds(turn_speed, -turn_speed);
+    delay(turn_delay);
+    break;
+  case 'B':
+    // U-turn with adjusted parameters
+    SetSpeeds(uturn_speed, -uturn_speed);
+    delay(uturn_delay);
+    break;
+  case 'S':
+    // For straight, just a small adjustment to ensure alignment
+    SetSpeeds(70, 70);
+    delay(50);
+    break;
+  }
+  
+  // Stop after completing turn
+  SetSpeeds(0, 0);
+  delay(50);
+  
+  lasttime = millis();   
+}
 
-    // We use the inner three sensors (1, 2, and 3) for
-    // determining whether there is a line straight ahead, and the
-    // sensors 0 and 4 for detecting lines going to the left and
-    // right.
-   if(millis() - lasttime > 100)//100
-   {
-    if (sensorValues[1] < 150 && sensorValues[2] < 150 && sensorValues[3] < 150)
-    {
-      // There is no line visible ahead, and we didn't see any
-      // intersection.  Must be a dead end.
-      SetSpeeds(0,0);
-      return;
-    }
-    else if (sensorValues[0] > 500 || sensorValues[4] > 500)
-    {
-      // Found an intersection.
-      SetSpeeds(0, 0);
-      return;
-    }
-   }
+// Helper function for PID tuning in the follow_segment function
+void adjustPIDForCurve(int proportional, int *base_speed, int *power_difference) {
+  // Adjust speed based on how sharp the curve is (indicated by proportional)
+  int abs_prop = abs(proportional);
+  
+  // For very sharp curves, reduce speed significantly
+  if (abs_prop > CURVE_SLOWDOWN_THRESHOLD) {
+    *base_speed = SHARP_CURVE_SPEED;
+  } 
+  // For moderate curves, reduce speed moderately
+  else if (abs_prop > CURVE_SLOWDOWN_THRESHOLD/2) {
+    *base_speed = MILD_CURVE_SPEED;
+  }
+  
+  // Adjust power difference for sharper response in curves
+  if (abs_prop > 500) {
+    *power_difference = (*power_difference * 12) / 10; // Increase by 20% for sharper turns
   }
 }
 
@@ -515,7 +651,7 @@ void loop() {
       // Drive straight a bit more - this is enough to line up our
       // wheels with the intersection.                                                                                                         // 40 -380
     
-    SetSpeeds(20,20);
+    SetSpeeds(50,50);
     delay(100);
     SetSpeeds(0, 0);
     delay(50);
@@ -695,4 +831,74 @@ byte PCF8574Read()
     data = Wire.read();
   }
   return data;
+}
+
+// Place this code somewhere in your program for calibration purposes
+// You can call this from setup() or use a button press to trigger it
+void calibrateTurns() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.println("Calibration Mode");
+  display.setCursor(0,10);
+  display.println("Press button for each test");
+  display.display();
+  
+  // Wait for button press
+  value = 0;
+  while(value != 0xEF) {
+    PCF8574Write(0x1F | PCF8574Read());
+    value = PCF8574Read() | 0xE0;
+  }
+  
+  // Test 90-degree left turn
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Testing Left Turn...");
+  display.display();
+  delay(1000);
+  SetSpeeds(-LRSpeeds0, LRSpeeds0);
+  delay(LRDelay0);
+  SetSpeeds(0, 0);
+  
+  // Wait for next test
+  value = 0;
+  while(value != 0xEF) {
+    PCF8574Write(0x1F | PCF8574Read());
+    value = PCF8574Read() | 0xE0;
+  }
+  
+  // Test 90-degree right turn
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Testing Right Turn...");
+  display.display();
+  delay(1000);
+  SetSpeeds(LRSpeeds0, -LRSpeeds0);
+  delay(LRDelay0);
+  SetSpeeds(0, 0);
+  
+  // Wait for next test
+  value = 0;
+  while(value != 0xEF) {
+    PCF8574Write(0x1F | PCF8574Read());
+    value = PCF8574Read() | 0xE0;
+  }
+  
+  // Test U-turn
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Testing U-Turn...");
+  display.display();
+  delay(1000);
+  SetSpeeds(BSpeeds0, -BSpeeds0);
+  delay(BDelay0);
+  SetSpeeds(0, 0);
+  
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Calibration Complete");
+  display.display();
+  delay(2000);
 }

@@ -413,86 +413,20 @@ void adjustPIDForCurve(int proportional, int *base_speed, int *power_difference)
   }
 }
 
-// Code to perform various types of turns according to the parameter dir,
-// which should be 'L' (left), 'R' (right), 'S' (straight), or 'B' (back).
-// The delays here had to be calibrated for the 3pi's motors.
-void turn(unsigned char dir)
-{
-  if(!solved)
-  {
-    switch(dir)
-    {
-    case 'L':
-      // Turn left. 250-80- ,250 -120
-      //              175-105, 250-120
-      SetSpeeds(-LRSpeeds0, LRSpeeds0);
-      delay(LRDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'R':
-      // Turn right.
-      SetSpeeds(LRSpeeds0, -LRSpeeds0);
-      delay(LRDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'B':
-      // Turn around.
-      SetSpeeds(BSpeeds0, -BSpeeds0);
-      delay(BDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'S':
-      // Don't do anything!
-      break;
-    }
-  }else
-  {
-    switch(dir)
-    {
-    case 'L':
-      // Turn left. 250-80- ,250 -120
-      //              175-105, 250-120
-      SetSpeeds(-LRSpeeds0, LRSpeeds0);
-      delay(LRDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'R':
-      // Turn right.
-      SetSpeeds(LRSpeeds0, -LRSpeeds0);
-      delay(LRDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'B':
-      // Turn around.
-      SetSpeeds(BSpeeds0, -BSpeeds0);
-      delay(BDelay0);
-      // OrangutanBuzzer::play(">>a32");
-      break;
-    case 'S':
-      // Don't do anything!
-      break;
-    }
-  }
-  SetSpeeds(0, 0);
-  delay(50);
- // value = 0;
-//  while(value != 0xEF)  //wait button pressed
-//  {
-//    PCF8574Write(0x1F | PCF8574Read());
-//    value = PCF8574Read() | 0xE0;
-//  }
-//  Serial.write(dir);
-//  Serial.println();
+unsigned char times_length = 0;
 
-  display.clearDisplay();
-  display.setTextSize(3);
-  display.setTextColor(WHITE);
-  display.setCursor(50,25);
-  display.println((char)dir);
-  display.display();
-
-  lasttime = millis();   
-}
+// The path variable will store the path that the robot has taken.  It
+// is stored as an array of characters, each of which represents the
+// turn that should be made at one intersection in the sequence:
+//  'L' for left
+//  'R' for right
+//  'S' for straight (going straight through an intersection)
+//  'B' for back (U-turn)
+//
+// Whenever the robot makes a U-turn, the path can be simplified by
+// removing the dead end.  The follow_next_turn() function checks for
+// this case every time it makes a turn, and it simplifies the path
+// appropriately.
 
 // This function decides which way to turn during the learning phase of
 // maze solving.  It uses the variables found_left, found_straight, and
@@ -513,7 +447,8 @@ unsigned char select_turn(unsigned char found_left, unsigned char found_straight
       return 'R';
     else
       return 'B';
-  }else
+  }
+  else
   {
     if (found_right)
       return 'R';
@@ -525,26 +460,6 @@ unsigned char select_turn(unsigned char found_left, unsigned char found_straight
       return 'B';
   }
 }
-
-// The path variable will store the path that the robot has taken.  It
-// is stored as an array of characters, each of which represents the
-// turn that should be made at one intersection in the sequence:
-//  'L' for left
-//  'R' for right
-//  'S' for straight (going straight through an intersection)
-//  'B' for back (U-turn)
-//
-// Whenever the robot makes a U-turn, the path can be simplified by
-// removing the dead end.  The follow_next_turn() function checks for
-// this case every time it makes a turn, and it simplifies the path
-// appropriately.
-
-
-
-
-
-unsigned char times_length = 0;
-
 
 // Path simplification.  The strategy is that whenever we encounter a
 // sequence xBx, we can simplify it by cutting out the dead end.  For
@@ -902,3 +817,4 @@ void calibrateTurns() {
   display.display();
   delay(2000);
 }
+// This function is used to generate a color wheel effect

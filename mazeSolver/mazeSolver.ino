@@ -6,10 +6,10 @@
 #include "EEPROM.h"
 
 // Updated turning parameters - starting point for calibration
-#define LRSpeeds0 90        // Reduced from 100 for better control
-#define LRDelay0 225        // Increased from 200 for complete turns
-#define BSpeeds0 130        // Reduced from 150
-#define BDelay0 375         // Increased from 350 for complete U-turns
+#define LRSpeeds0 100        // Reduced from 100 for better control
+#define LRDelay0 290        // Increased from 200 for complete turns
+#define BSpeeds0 150        // Reduced from 150
+#define BDelay0 350         // Increased from 350 for complete U-turns
 
 // Curve handling parameters
 #define MILD_CURVE_SPEED 100  // Speed for mild curves
@@ -563,11 +563,19 @@ void loop() {
     if (sensorValues[4] > 500)
       found_right = 1;
 
-      // Drive straight a bit more - this is enough to line up our
-      // wheels with the intersection.                                                                                                         // 40 -380
+    // Drive straight a bit more - this helps position the robot
+    // in the center of the intersection for more accurate turns.
+    // A longer delay here ensures the robot is properly aligned
+    // before turning.
+    SetSpeeds(50, 50);
     
-    SetSpeeds(50,50);
-    delay(100);
+    // Longer delay when learning, slightly shorter when following a known path
+    if (!solved) {
+      delay(200); // Increased from 100ms to ensure better positioning
+    } else {
+      delay(150); // Shorter delay for replay mode but still ensuring good alignment
+    }
+    
     SetSpeeds(0, 0);
     delay(50);
 

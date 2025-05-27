@@ -12,9 +12,9 @@
 #define BDelay0 375         // Increased from 350 for complete U-turns
 
 // Curve handling parameters
-#define MILD_CURVE_SPEED 100  // Speed for mild curves
-#define SHARP_CURVE_SPEED 80  // Speed for sharper curves
-#define CURVE_SLOWDOWN_THRESHOLD 800  // Proportional threshold to reduce speed
+#define MILD_CURVE_SPEED 130  // Increased from 100
+#define SHARP_CURVE_SPEED 110 // Increased from 80
+#define CURVE_SLOWDOWN_THRESHOLD 900  // Slightly higher for faster response
 
 #define PWMA   6           //Left Motor Speed pin (ENA)
 #define AIN2   A0          //Motor-L forward (IN2).
@@ -198,16 +198,20 @@ void setup() {
 }
 
 // PID constants - tune these values for better curved line following
-#define KP 0.25   // Proportional constant (previously 1/20 = 0.05)
-#define KI 0.0001 // Integral constant (previously 1/10000 = 0.0001)
-#define KD 2.0    // Derivative constant (previously 10)
+#define KP 0.22   // Slightly reduced for stability at higher speed
+#define KI 0.00008 // Slightly reduced to avoid windup
+#define KD 2.2    // Slightly increased for faster correction
 
 // Threshold values for sensors
 #define LINE_THRESHOLD 300      // Minimum value to consider as line
 #define INTERSECTION_THRESHOLD 500 // Threshold for detecting an intersection
 #define CURVE_DETECTION_THRESHOLD 400 // Threshold to detect curve
 
-// Function to follow a segment of line until intersection or dead end
+// Increase base speeds for faster movement
+#define MILD_CURVE_SPEED 130  // Increased from 100
+#define SHARP_CURVE_SPEED 110 // Increased from 80
+#define CURVE_SLOWDOWN_THRESHOLD 900  // Slightly higher for faster response
+
 void follow_segment()
 {
   int last_proportional = 0;
@@ -289,9 +293,9 @@ void follow_segment()
     
     // Determine base speed - reduce speed in curves
     if(solved) {
-      base_speed = 150 - curve_speed_reduction;  // Maximum speed when solved
+      base_speed = 180 - curve_speed_reduction;  // Increased from 150
     } else {
-      base_speed = 120 - curve_speed_reduction;  // Learning speed
+      base_speed = 150 - curve_speed_reduction;  // Increased from 120
     }
     
     // Limit the power difference to prevent extreme turns
@@ -357,10 +361,10 @@ void turn(unsigned char dir)
   display.display();
 
   // For AlphaBot2-AR: use strong in-place turns for 90°/U-turns, gentle curves for 'S'
-  int turn_speed = !solved ? LRSpeeds0 : LRSpeeds0 * 1.1;
-  int turn_delay = !solved ? LRDelay0 : LRDelay0 * 0.9;
-  int uturn_speed = !solved ? BSpeeds0 : BSpeeds0 * 1.1;
-  int uturn_delay = !solved ? BDelay0 : BDelay0 * 0.9;
+  int turn_speed = !solved ? LRSpeeds0+20 : (int)(LRSpeeds0 * 1.2); // Increased turn speed
+  int turn_delay = !solved ? LRDelay0-20 : (int)(LRDelay0 * 0.85); // Slightly reduced delay
+  int uturn_speed = !solved ? BSpeeds0+20 : (int)(BSpeeds0 * 1.2); // Increased U-turn speed
+  int uturn_delay = !solved ? BDelay0-30 : (int)(BDelay0 * 0.85); // Slightly reduced delay
 
   switch(dir)
   {

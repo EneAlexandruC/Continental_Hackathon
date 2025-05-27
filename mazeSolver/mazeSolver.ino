@@ -341,13 +341,13 @@ void follow_segment()
   }
 }
 
-// Improved turn function with more precise control
+// Improved turn function for AlphaBot2-AR: single, smooth in-place turn for sharp turns
 void turn(unsigned char dir)
 {
-  // Common turn setup
+  // Brief stop before turning for stability
   SetSpeeds(0, 0);
-  delay(50);  // Brief stop before turning for stability
-  
+  delay(30);
+
   // Visual feedback of current turn
   display.clearDisplay();
   display.setTextSize(3);
@@ -355,41 +355,41 @@ void turn(unsigned char dir)
   display.setCursor(50,25);
   display.println((char)dir);
   display.display();
-  
-  // Different speeds for learning vs solved mode
-  int turn_speed = !solved ? LRSpeeds0 : LRSpeeds0 * 1.1;  // Slightly faster when solved
-  int turn_delay = !solved ? LRDelay0 : LRDelay0 * 0.9;    // Slightly shorter delay when solved
+
+  // For AlphaBot2-AR: use strong in-place turns for 90°/U-turns, gentle curves for 'S'
+  int turn_speed = !solved ? LRSpeeds0 : LRSpeeds0 * 1.1;
+  int turn_delay = !solved ? LRDelay0 : LRDelay0 * 0.9;
   int uturn_speed = !solved ? BSpeeds0 : BSpeeds0 * 1.1;
   int uturn_delay = !solved ? BDelay0 : BDelay0 * 0.9;
-  
+
   switch(dir)
   {
-  case 'L':
-    // Turn left with adjusted parameters
-    SetSpeeds(-turn_speed, turn_speed);
-    delay(turn_delay);
-    break;
-  case 'R':
-    // Turn right with adjusted parameters
-    SetSpeeds(turn_speed, -turn_speed);
-    delay(turn_delay);
-    break;
-  case 'B':
-    // U-turn with adjusted parameters
-    SetSpeeds(uturn_speed, -uturn_speed);
-    delay(uturn_delay);
-    break;
-  case 'S':
-    // For straight, just a small adjustment to ensure alignment
-    SetSpeeds(70, 70);
-    delay(50);
-    break;
+    case 'L':
+      // Single, strong in-place left turn
+      SetSpeeds(-turn_speed, turn_speed);
+      delay(turn_delay + 30); // Slightly longer for AlphaBot2-AR
+      break;
+    case 'R':
+      // Single, strong in-place right turn
+      SetSpeeds(turn_speed, -turn_speed);
+      delay(turn_delay + 30);
+      break;
+    case 'B':
+      // U-turn in place
+      SetSpeeds(uturn_speed, -uturn_speed);
+      delay(uturn_delay + 50);
+      break;
+    case 'S':
+      // For straight, just a small forward nudge for alignment
+      SetSpeeds(turn_speed, turn_speed);
+      delay(40);
+      break;
   }
-  
+
   // Stop after completing turn
   SetSpeeds(0, 0);
-  delay(50);
-  
+  delay(30);
+
   lasttime = millis();   
 }
 

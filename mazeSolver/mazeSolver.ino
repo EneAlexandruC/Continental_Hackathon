@@ -574,22 +574,22 @@ void loop() {
       found_straight = 1;
 
     // Check for the ending spot.
-    if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
-    {
-      display.clearDisplay();
-      display.setTextSize(2);
-      display.setTextColor(WHITE);
-      display.setCursor(0,25);
-      display.println("Am gasit iesirea!");
-      display.display();
-      EEPROM.write(0, path_length);
-      for (int i = 1; i <= path_length; i++) {
-          EEPROM.write(i,path[i-1]);
-      }
-      solved = 1;
-      SetSpeeds(0, 0);
-      break;
-    }
+    // if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
+    // {
+    //   display.clearDisplay();
+    //   display.setTextSize(2);
+    //   display.setTextColor(WHITE);
+    //   display.setCursor(0,25);
+    //   display.println("Am gasit iesirea!");
+    //   display.display();
+    //   EEPROM.write(0, path_length);
+    //   for (int i = 1; i <= path_length; i++) {
+    //       EEPROM.write(i,path[i-1]);
+    //   }
+    //   solved = 1;
+    //   SetSpeeds(0, 0);
+    //   break;
+    // }
 
     // Intersection identification is complete.
     // If the maze has been solved, we can follow the existing

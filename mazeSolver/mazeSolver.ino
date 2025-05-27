@@ -5,16 +5,16 @@
 #include <Wire.h>
 #include "EEPROM.h"
 
-// Updated turning parameters - starting point for calibration
-#define LRSpeeds0 90        // Reduced from 100 for better control
-#define LRDelay0 225        // Increased from 200 for complete turns
-#define BSpeeds0 130        // Reduced from 150
-#define BDelay0 375         // Increased from 350 for complete U-turns
+// Updated turning parameters - for smooth, controlled turns
+#define LRSpeeds0 150        // Higher for faster, but still controlled turns
+#define LRDelay0 150         // Shorter for snappier turns
+#define BSpeeds0 180         // Higher for faster U-turns
+#define BDelay0 240          // Shorter for faster U-turns
 
 // Curve handling parameters
-#define MILD_CURVE_SPEED 130  // Increased from 100
-#define SHARP_CURVE_SPEED 110 // Increased from 80
-#define CURVE_SLOWDOWN_THRESHOLD 900  // Slightly higher for faster response
+#define MILD_CURVE_SPEED 180  // Higher for faster curves
+#define SHARP_CURVE_SPEED 150 // Higher for sharp curves
+#define CURVE_SLOWDOWN_THRESHOLD 1000  // Higher for later slowdown in curves
 
 #define PWMA   6           //Left Motor Speed pin (ENA)
 #define AIN2   A0          //Motor-L forward (IN2).
@@ -197,14 +197,14 @@ void setup() {
   delay(500);
 }
 
-// PID constants - tune these values for better curved line following
-#define KP 0.22   // Slightly reduced for stability at higher speed
-#define KI 0.00008 // Slightly reduced to avoid windup
-#define KD 2.2    // Slightly increased for faster correction
+// PID constants - tuned for fast, stable line following
+#define KP 0.28   // More aggressive for fast correction
+#define KI 0.00012 // Slightly higher for quick integral response
+#define KD 2.7    // Higher for stronger derivative damping
 
 // Threshold values for sensors
 #define LINE_THRESHOLD 300      // Minimum value to consider as line
-#define INTERSECTION_THRESHOLD 500 // Threshold for detecting an intersection
+#define INTERSECTION_THRESHOLD 420 // Lowered for more sensitive intersection detection
 #define CURVE_DETECTION_THRESHOLD 400 // Threshold to detect curve
 
 // Increase base speeds for faster movement
@@ -291,12 +291,8 @@ void follow_segment()
     // Compute the difference between the two motor power settings
     int power_difference = (proportional * KP) + (integral * KI) + (derivative * KD);
     
-    // Determine base speed - reduce speed in curves
-    if(solved) {
-      base_speed = 180 - curve_speed_reduction;  // Increased from 150
-    } else {
-      base_speed = 150 - curve_speed_reduction;  // Increased from 120
-    }
+    // Only learning mode, so always use max speed
+    base_speed = 180 - curve_speed_reduction;  // Slightly higher for more speed
     
     // Limit the power difference to prevent extreme turns
     int maximum = base_speed;
@@ -361,10 +357,10 @@ void turn(unsigned char dir)
   display.display();
 
   // For AlphaBot2-AR: use strong in-place turns for 90°/U-turns, gentle curves for 'S'
-  int turn_speed = !solved ? LRSpeeds0+20 : (int)(LRSpeeds0 * 1.2); // Increased turn speed
-  int turn_delay = !solved ? LRDelay0-20 : (int)(LRDelay0 * 0.85); // Slightly reduced delay
-  int uturn_speed = !solved ? BSpeeds0+20 : (int)(BSpeeds0 * 1.2); // Increased U-turn speed
-  int uturn_delay = !solved ? BDelay0-30 : (int)(BDelay0 * 0.85); // Slightly reduced delay
+  int turn_speed = LRSpeeds0; // Use smooth speed
+  int turn_delay = LRDelay0;
+  int uturn_speed = BSpeeds0;
+  int uturn_delay = BDelay0;
 
   switch(dir)
   {
@@ -548,65 +544,48 @@ void loop() {
     // intersection at an angle.
     // Note that we are slowing down - this prevents the robot
     // from tipping forward too much.
-    SetSpeeds(30, 30);
-    delay(40);
+    SetSpeeds(40, 40);
+    delay(30);
 
-    // These variables record whether the robot has seen a line to the
-    // left, straight ahead, and right, whil examining the current
-    // intersection.
     unsigned char found_left = 0;
     unsigned char found_straight = 0;
     unsigned char found_right = 0;
 
-    // Now read the sensors and check the intersection type.
-   trs.readLine(sensorValues);
-
-    // Check for left and right exits.
-    if (sensorValues[0] > 500)
+    // First intersection check (before creeping forward)
+    trs.readLine(sensorValues);
+    if (sensorValues[0] > INTERSECTION_THRESHOLD)
       found_left = 1;
-    if (sensorValues[4] > 500)
+    if (sensorValues[4] > INTERSECTION_THRESHOLD)
       found_right = 1;
 
-      // Drive straight a bit more - this is enough to line up our
-      // wheels with the intersection.                                                                                                         // 40 -380
-    
-    SetSpeeds(50,50);
-    delay(100);
+    // Creep forward into the intersection for better detection
+    SetSpeeds(60,60);
+    delay(60);
     SetSpeeds(0, 0);
-    delay(50);
+    delay(20);
 
-    // Check for a straight exit.
+    // Second intersection check (after creeping forward)
     trs.readLine(sensorValues);
-    if (sensorValues[1] > 500 || sensorValues[2] > 500 || sensorValues[3] > 500)
+    if (sensorValues[0] > INTERSECTION_THRESHOLD)
+      found_left = 1;
+    if (sensorValues[4] > INTERSECTION_THRESHOLD)
+      found_right = 1;
+    if (sensorValues[1] > INTERSECTION_THRESHOLD || sensorValues[2] > INTERSECTION_THRESHOLD || sensorValues[3] > INTERSECTION_THRESHOLD)
       found_straight = 1;
 
     // Check for the ending spot.
-    // If all three middle sensors are on dark black, we have
-    // solved the maze.
     if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
     {
-      // SetSpeeds(-40, 40);
-      // delay(500);
-      // SetSpeeds(40, -40);
-      // delay(1000);
-    //   if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
-    // {
-    //   solved = 1;
-    //   SetSpeeds(0, 0);
-    //   break;
-    // }
-
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setTextColor(WHITE);
-    display.setCursor(0,25);
-    display.println("Am gasit iesirea!");
-    display.display();
-    EEPROM.write(0, path_length);
-    for (int i = 1; i <= path_length; i++) {
-        EEPROM.write(i,path[i-1]);
-    }
-
+      display.clearDisplay();
+      display.setTextSize(2);
+      display.setTextColor(WHITE);
+      display.setCursor(0,25);
+      display.println("Am gasit iesirea!");
+      display.display();
+      EEPROM.write(0, path_length);
+      for (int i = 1; i <= path_length; i++) {
+          EEPROM.write(i,path[i-1]);
+      }
       solved = 1;
       SetSpeeds(0, 0);
       break;

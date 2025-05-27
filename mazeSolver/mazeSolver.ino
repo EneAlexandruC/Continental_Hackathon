@@ -197,10 +197,10 @@ void setup() {
   delay(500);
 }
 
-// PID constants - tuned for fast, stable line following
-#define KP 0.40   // More aggressive for fast correction
-#define KI 0.00030 // Slightly higher for quick integral response
-#define KD 3.9    // Higher for stronger derivative damping
+// PID constants - Ziegler-Nichols aggressive tuning to prevent oscillation
+#define KP 0.65   // Increased proportional gain for faster response
+#define KI 0.00015 // Reduced integral to prevent windup and oscillation
+#define KD 8.5    // Significantly increased derivative for strong damping
 
 // Threshold values for sensors
 #define LINE_THRESHOLD 600      // Minimum value to consider as line
@@ -292,7 +292,7 @@ void follow_segment()
     int power_difference = (proportional * KP) + (integral * KI) + (derivative * KD);
     
     // Only learning mode, so always use max speed
-    base_speed = 180 - curve_speed_reduction;  // Slightly higher for more speed
+    base_speed = 220 - curve_speed_reduction;  // Slightly higher for more speed
     
     // Limit the power difference to prevent extreme turns
     int maximum = base_speed;
@@ -543,7 +543,7 @@ void loop() {
     // Drive straight a bit.  This helps us in case we entered the
     // intersection at an angle.
     // Note that we are slowing down - this prevents the robot
-    // from tipping forward too much.
+    // // from tipping forward too much.
     SetSpeeds(40, 40);
     delay(30);
 

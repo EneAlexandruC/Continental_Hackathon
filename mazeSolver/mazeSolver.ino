@@ -44,8 +44,8 @@ void PCF8574Write(byte data);
 byte PCF8574Read();
 uint32_t Wheel(byte WheelPos);
 
-// char path[100] = "";
-// unsigned char path_length = 0; // the length of the path
+char path[100] = "";
+unsigned char path_length = 0; // the length of the path
 
 
 void setup() {
@@ -118,20 +118,20 @@ void setup() {
     }
   }
 
-  // if(left == 7){
-  //   solved =1;
-  //   byte haha = EEPROM.read(0);
-  //   path_length = char(haha);
-  //   for (int i = 1; i <= path_length ; i++) {
-  //       byte readValue = EEPROM.read(i);
+  if(left == 7){
+    solved =1;
+    byte haha = EEPROM.read(0);
+    path_length = char(haha);
+    for (int i = 1; i <= path_length ; i++) {
+        byte readValue = EEPROM.read(i);
 
-  //       if (readValue == 0) {
-  //           break;
-  //       }
-  //       char readValueChar = char(readValue);
-  //       path[i-1]=readValueChar ;
-  //   }
-  // }
+        if (readValue == 0) {
+            break;
+        }
+        char readValueChar = char(readValue);
+        path[i-1]=readValueChar ;
+    }
+  }
   
   RGB.begin();
   RGB.setPixelColor(0,0x020F0 );
@@ -142,24 +142,14 @@ void setup() {
   delay(500);
 //  analogWrite(PWMA,60);
 //  analogWrite(PWMB,60);
-  for (int i = 0; i < 225; i++)  // make the calibration take about 10 seconds
+  for (int i = 0; i < 300; i++)  // make the calibration take about 10 seconds
   {
-    if(i < 50 || i >= 150)
-    {
-     digitalWrite(AIN2,HIGH);
-     digitalWrite(AIN1,LOW);
-     digitalWrite(BIN1,LOW); 
-     digitalWrite(BIN2,HIGH);  
-      SetSpeeds(70,-70);
-    }
-    else
-    {
-     digitalWrite(AIN2,LOW);
-     digitalWrite(AIN1,HIGH);
-     digitalWrite(BIN1,HIGH); 
-     digitalWrite(BIN2,LOW);  
-        SetSpeeds(-70,70);
-    }
+      digitalWrite(AIN2,HIGH);
+      digitalWrite(AIN1,LOW);
+      digitalWrite(BIN1,LOW); 
+      digitalWrite(BIN2,HIGH);  
+      SetSpeeds(100, -100);
+
     trs.calibrate();       // reads all sensors 100 times
   }
   SetSpeeds(0,0); 
@@ -293,6 +283,7 @@ void follow_segment()
     
     // Only learning mode, so always use max speed
     base_speed = 200 - curve_speed_reduction;  // Slightly higher for more speed
+
     
     // Limit the power difference to prevent extreme turns
     int maximum = base_speed;
@@ -465,74 +456,74 @@ unsigned char select_turn(unsigned char found_left, unsigned char found_straight
 // sequence xBx, we can simplify it by cutting out the dead end.  For
 // example, LBL -> S, because a single S bypasses the dead end
 // represented by LBL.
-// void simplify_path()
-// {
-//   // only simplify the path if the second-to-last turn was a 'B'
-//   if (path_length < 3 || path[path_length-2] != 'B')
-//     return;
+void simplify_path()
+{
+  // only simplify the path if the second-to-last turn was a 'B'
+  if (path_length < 3 || path[path_length-2] != 'B')
+    return;
 
-//   int total_angle = 0;
-//   int i;
+  int total_angle = 0;
+  int i;
 
-//   if (left)
-//   {
-//     for (i = 1; i <= 3; i++)
-//     {
-//       switch (path[path_length - i])
-//       {
-//       case 'R':
-//         total_angle += 90;
-//         break;
-//       case 'L':
-//         total_angle += 270;
-//         break;
-//       case 'B':
-//         total_angle += 180;
-//         break;
-//       }
-//     }
-//   }else
-//   {
-//     for (i = 1; i <= 3; i++)
-//     {
-//       switch (path[path_length - i])
-//       {
-//       case 'L':
-//         total_angle += 90;
-//         break;
-//       case 'R':
-//         total_angle += 270;
-//         break;
-//       case 'B':
-//         total_angle += 180;
-//         break;
-//       }
-//     }
-//   }
+  if (left)
+  {
+    for (i = 1; i <= 3; i++)
+    {
+      switch (path[path_length - i])
+      {
+      case 'R':
+        total_angle += 90;
+        break;
+      case 'L':
+        total_angle += 270;
+        break;
+      case 'B':
+        total_angle += 180;
+        break;
+      }
+    }
+  }else
+  {
+    for (i = 1; i <= 3; i++)
+    {
+      switch (path[path_length - i])
+      {
+      case 'L':
+        total_angle += 90;
+        break;
+      case 'R':
+        total_angle += 270;
+        break;
+      case 'B':
+        total_angle += 180;
+        break;
+      }
+    }
+  }
 
-//   // Get the angle as a number between 0 and 360 degrees.
-//   total_angle = total_angle % 360;
+  // Get the angle as a number between 0 and 360 degrees.
+  total_angle = total_angle % 360;
 
-//   // Replace all of those turns with a single one.
-//   switch (total_angle)
-//   {
-//   case 0:
-//     path[path_length - 3] = 'S';
-//     break;
-//   case 90:
-//     path[path_length - 3] = left == 0 ? 'L' : 'R';
-//     break;
-//   case 180:
-//     path[path_length - 3] = 'B';
-//     break;
-//   case 270:
-//     path[path_length - 3] = left == 0 ? 'R' : 'L';
-//     break;
-//   }
+  // Replace all of those turns with a single one.
+  switch (total_angle)
+  {
+  case 0:
+    path[path_length - 3] = 'S';
+    break;
+  case 90:
+    path[path_length - 3] = left == 0 ? 'L' : 'R';
+    break;
+  case 180:
+    path[path_length - 3] = 'B';
+    break;
+  case 270:
+    path[path_length - 3] = left == 0 ? 'R' : 'L';
+    break;
+  }
 
-//   // The path is now two steps shorter.
-//   path_length -= 2;
-// }
+  // The path is now two steps shorter.
+  path_length -= 2;
+}
 
 void loop() {
   if(left!=7)
@@ -663,20 +654,20 @@ void loop() {
     // Re-run the maze.  It's not necessary to identify the
     // intersections, so this loop is really simple.
     // int i;
-    // for (i = 0; i < path_length; i++)
-    // {
-    //   follow_segment();
+    for (i = 0; i < path_length; i++)
+    {
+      follow_segment();
 
-    //   // Drive straight while slowing down, as before.
-    //   // SetSpeeds(0, 0);
-    //   // delay(100);
-    //   SetSpeeds(30, 30);
-    //   delay(100);
+      // Drive straight while slowing down, as before.
+      SetSpeeds(0, 0);
+      delay(100);
+      SetSpeeds(30, 30);
+      delay(100);
 
-    //   // Make a turn according to the instruction stored in
-    //   // path[i].
-    //   // turn(path[i]);
-    // }
+      // Make a turn according to the instruction stored in
+      // path[i].
+      turn(path[i]);
+    }
 
     // Follow the last segment up to the finish.
     follow_segment();

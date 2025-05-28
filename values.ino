@@ -5,16 +5,13 @@
 #include <Wire.h>
 #include "EEPROM.h"
 
-// Updated turning parameters - for smooth, controlled turns
-#define LRSpeeds0 80        // Higher for faster, but still controlled turns
-#define LRDelay0 140        // Shorter for snappier turns
-#define BSpeeds0 100         // Higher for faster U-turns
-#define BDelay0 250         // Shorter for faster U-turns
+//Macros for motor speeds
+#define LRSpeeds0 80
+#define LRDelay0 180
+#define BSpeeds0 100
+#define BDelay0 280
 
-// Curve handling parameters
-#define MILD_CURVE_SPEED 60  // Higher for faster curves
-#define SHARP_CURVE_SPEED 50 // Higher for sharp curves
-#define CURVE_SLOWDOWN_THRESHOLD 1000  // Higher for later slowdown in curves
+
 
 #define PWMA   6           //Left Motor Speed pin (ENA)
 #define AIN2   A0          //Motor-L forward (IN2).
@@ -142,14 +139,24 @@ void setup() {
   delay(500);
 //  analogWrite(PWMA,60);
 //  analogWrite(PWMB,60);
-  for (int i = 0; i < 300; i++)  // make the calibration take about 10 seconds
+  for (int i = 0; i < 100; i++)  // make the calibration take about 10 seconds
   {
-      digitalWrite(AIN2,HIGH);
-      digitalWrite(AIN1,LOW);
-      digitalWrite(BIN1,LOW); 
-      digitalWrite(BIN2,HIGH);  
-      SetSpeeds(50, -50);
-
+    if(i < 25 || i >= 75)
+    {
+     digitalWrite(AIN2,HIGH);
+     digitalWrite(AIN1,LOW);
+     digitalWrite(BIN1,LOW); 
+     digitalWrite(BIN2,HIGH);  
+      SetSpeeds(50,-50);
+    }
+    else
+    {
+     digitalWrite(AIN2,LOW);
+     digitalWrite(AIN1,HIGH);
+     digitalWrite(BIN1,HIGH); 
+     digitalWrite(BIN2,LOW);  
+        SetSpeeds(-50,50);
+    }
     trs.calibrate();       // reads all sensors 100 times
   }
   SetSpeeds(0,0); 
@@ -187,158 +194,160 @@ void setup() {
   delay(500);
 }
 
-// PID constants - Optimized for fast and smooth line following
-#define KP 0.12   // Balanced proportional gain for responsive but stable tracking
-#define KI 0.0003 // Minimal integral to prevent windup while handling steady-state errors
-#define KD 6.0    // Strong derivative for smooth damping and overshoot prevention
-
-// Threshold values for sensors
-#define LINE_THRESHOLD 600      // Minimum value to consider as line
-#define INTERSECTION_THRESHOLD 600 // Lowered for more sensitive intersection detection
-#define CURVE_DETECTION_THRESHOLD 200 // Threshold to detect curve
-
-// Increase base speeds for faster movement
-#define MILD_CURVE_SPEED 60  // Increased from 100
-#define SHARP_CURVE_SPEED 50 // Increased from 80
-#define CURVE_SLOWDOWN_THRESHOLD 1000  // Slightly higher for faster response
-
+// This function, causes the 3pi to follow a segment of the maze until
+// it detects an intersection, a dead end, or the finish.
 void follow_segment()
 {
   int last_proportional = 0;
-  long integral = 0;
-  float avg_position = 2000; // Start assuming we're centered
-  
-  // For average sensor readings
-  const int readings_count = 3;
-  unsigned int last_positions[readings_count] = {2000, 2000, 2000};
-  int reading_index = 0;
-  
-  // For dynamic speed control
-  int base_speed;
-  int curve_speed_reduction = 0;
-  int max_curve_reduction = 40;
+  long integral=0;
 
   while(1)
   {
-    // Get the position of the line
-    unsigned int raw_position = trs.readLine(sensorValues);
-    
-    // Simple moving average filter for position
-    last_positions[reading_index] = raw_position;
-    reading_index = (reading_index + 1) % readings_count;
-    
-    unsigned long position_sum = 0;
-    for(int i = 0; i < readings_count; i++) {
-      position_sum += last_positions[i];
-    }
-    position = position_sum / readings_count;
-    
-    // Exponential smoothing for more stable position
-    avg_position = 0.7 * avg_position + 0.3 * position;
-    
-    // The "proportional" term should be 0 when we are on the line
-    int proportional = ((int)avg_position) - 2000;
-    
-    // Detect if we're in a curve based on sensor readings
-    bool in_curve = false;
-    int active_sensors = 0;
-    for(int i = 0; i < NUM_SENSORS; i++) {
-      if(sensorValues[i] > CURVE_DETECTION_THRESHOLD) {
-        active_sensors++;
-      }
-    }
-    
-    // Detect a curve by checking pattern and distribution of active sensors
-    if(active_sensors >= 2 && abs(proportional) > 500) {
-      in_curve = true;
-      // Gradually increase curve_speed_reduction up to max_curve_reduction
-      if(curve_speed_reduction < max_curve_reduction) {
-        curve_speed_reduction += 2;
-      }
-    } else {
-      // Gradually return to normal speed
-      if(curve_speed_reduction > 0) {
-        curve_speed_reduction--;
-      }
-    }
-    
-    // Compute the derivative (change) and integral (sum) of the position
+    // Normally, we will be following a line.  The code below is
+    // similar to the 3pi-linefollower-pid example, but the maximum
+    // speed is turned down to 60 for reliability.
+
+    // Get the position of the line.
+    unsigned int position = trs.readLine(sensorValues);
+
+    // The "proportional" term should be 0 when we are on the line.
+    int proportional = ((int)position) - 2000;
+
+    // Compute the derivative (change) and integral (sum) of the
+    // position.
     int derivative = proportional - last_proportional;
     integral += proportional;
-    
-    // Prevent integral windup by limiting its range
-    if(integral > 20000) integral = 20000;
-    if(integral < -20000) integral = -20000;
-    
-    // If we're centered on the line, decay the integral term
-    if(abs(proportional) < 100) {
-      integral = integral * 0.8;
-    }
-    
-    // Remember the last position
+
+    // Remember the last position.
     last_proportional = proportional;
-    
-    // Compute the difference between the two motor power settings
-    int power_difference = (proportional * KP) + (integral * KI) + (derivative * KD);
-    
-    // Only learning mode, so always use max speed
-    base_speed = 87 - curve_speed_reduction;  // Slightly higher for more speed
 
-    // Limit the power difference to prevent extreme turns
-    int maximum = base_speed;
-    if(power_difference > maximum)
+    // Compute the difference between the two motor power settings,
+    // m1 - m2.  If this is a positive number the robot will turn
+    // to the left.  If it is a negative number, the robot will
+    // turn to the right, and the magnitude of the number determines
+    // the sharpness of the turn.
+    int power_difference = proportional/20 + integral/10000 + derivative*10;
+
+    // Compute the actual motor settings.  We never set either motor
+    // to a negative value.
+    int maximum;
+    if (solved)
+    {
+      maximum = 100; // the maximum speed
+    }else{
+      maximum = 70; // learning speed
+    }
+
+    if (power_difference > maximum)
       power_difference = maximum;
-    if(power_difference < -maximum)
-      power_difference = -maximum;
+    if (power_difference < -maximum)
+      power_difference = - maximum;
 
-    // Apply power difference to motors
-    if(power_difference < 0) {
-      analogWrite(PWMA, base_speed + power_difference);
-      analogWrite(PWMB, base_speed);
-    } else {
-      analogWrite(PWMA, base_speed);
-      analogWrite(PWMB, base_speed - power_difference);
+    if (power_difference < 0)
+    {
+      analogWrite(PWMA,maximum + power_difference);
+      analogWrite(PWMB,maximum);
     }
-    
-    // Check for intersections or dead ends only if enough time has passed
-    // This prevents multiple triggers when approaching intersections
-    if(millis() - lasttime > 100) {
-      // Check if all sensors moved away from the line (dead end)
-      bool all_sensors_off_line = true;
-      for(int i = 1; i <= 3; i++) {
-        if(sensorValues[i] > LINE_THRESHOLD) {
-          all_sensors_off_line = false;
-          break;
-        }
-      }
-      
-      if(all_sensors_off_line) {
-        // No line visible ahead - must be a dead end
-        SetSpeeds(0, 0);
-        return;
-      }
-      
-      // Improved intersection detection
-      // Only trigger on outer sensors when they're significantly above threshold
-      // and we're not in a gradual curve (which would activate only one outer sensor)
-      if((sensorValues[0] > INTERSECTION_THRESHOLD && (sensorValues[1] > LINE_THRESHOLD || sensorValues[4] > INTERSECTION_THRESHOLD)) || 
-         (sensorValues[4] > INTERSECTION_THRESHOLD && (sensorValues[3] > LINE_THRESHOLD || sensorValues[0] > INTERSECTION_THRESHOLD))) {
-        // Found an intersection
-        SetSpeeds(0, 0);
-        return;
-      }
+    else
+    {
+      analogWrite(PWMA,maximum);
+      analogWrite(PWMB,maximum - power_difference);
     }
+
+    // We use the inner three sensors (1, 2, and 3) for
+    // determining whether there is a line straight ahead, and the
+    // sensors 0 and 4 for detecting lines going to the left and
+    // right.
+   if(millis() - lasttime > 100)//100
+   {
+    if (sensorValues[1] < 150 && sensorValues[2] < 150 && sensorValues[3] < 150)
+    {
+      // There is no line visible ahead, and we didn't see any
+      // intersection.  Must be a dead end.
+      SetSpeeds(0,0);
+      return;
+    }
+    else if (sensorValues[0] > 500 || sensorValues[4] > 500)
+    {
+      // Found an intersection.
+      SetSpeeds(0, 0);
+      return;
+    }
+   }
   }
 }
 
-// Improved turn function for AlphaBot2-AR: single, smooth in-place turn for sharp turns
+// Code to perform various types of turns according to the parameter dir,
+// which should be 'L' (left), 'R' (right), 'S' (straight), or 'B' (back).
+// The delays here had to be calibrated for the 3pi's motors.
 void turn(unsigned char dir)
 {
-  // Brief stop before turning for stability
+  if(!solved)
+  {
+    switch(dir)
+    {
+    case 'L':
+      // Turn left. 250-80- ,250 -120
+      //              175-105, 250-120
+      SetSpeeds(-LRSpeeds0, LRSpeeds0);
+      delay(LRDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'R':
+      // Turn right.
+      SetSpeeds(LRSpeeds0, -LRSpeeds0);
+      delay(LRDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'B':
+      // Turn around.
+      SetSpeeds(BSpeeds0, -BSpeeds0);
+      delay(BDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'S':
+      // Don't do anything!
+      break;
+    }
+  }else
+  {
+    switch(dir)
+    {
+    case 'L':
+      // Turn left. 250-80- ,250 -120
+      //              175-105, 250-120
+      SetSpeeds(-LRSpeeds0, LRSpeeds0);
+      delay(LRDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'R':
+      // Turn right.
+      SetSpeeds(LRSpeeds0, -LRSpeeds0);
+      delay(LRDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'B':
+      // Turn around.
+      SetSpeeds(BSpeeds0, -BSpeeds0);
+      delay(BDelay0);
+      // OrangutanBuzzer::play(">>a32");
+      break;
+    case 'S':
+      // Don't do anything!
+      break;
+    }
+  }
   SetSpeeds(0, 0);
-  delay(30);
+  delay(50);
+ // value = 0;
+//  while(value != 0xEF)  //wait button pressed
+//  {
+//    PCF8574Write(0x1F | PCF8574Read());
+//    value = PCF8574Read() | 0xE0;
+//  }
+//  Serial.write(dir);
+//  Serial.println();
 
-  // Visual feedback of current turn
   display.clearDisplay();
   display.setTextSize(3);
   display.setTextColor(WHITE);
@@ -346,77 +355,8 @@ void turn(unsigned char dir)
   display.println((char)dir);
   display.display();
 
-  // For AlphaBot2-AR: use strong in-place turns for 90°/U-turns, gentle curves for 'S'
-  int turn_speed = LRSpeeds0; // Use smooth speed
-  int turn_delay = LRDelay0;
-  int uturn_speed = BSpeeds0;
-  int uturn_delay = BDelay0;
-
-  switch(dir)
-  {
-    case 'L':
-      // Single, strong in-place left turn
-      SetSpeeds(-turn_speed, turn_speed);
-      delay(turn_delay + 30); // Slightly longer for AlphaBot2-AR
-      break;
-    case 'R':
-      // Single, strong in-place right turn
-      SetSpeeds(turn_speed, -turn_speed);
-      delay(turn_delay + 30);
-      break;
-    case 'B':
-      // U-turn in place
-      SetSpeeds(uturn_speed, -uturn_speed);
-      delay(uturn_delay + 50);
-      break;
-    case 'S':
-      // For straight, just a small forward nudge for alignment
-      SetSpeeds(turn_speed, turn_speed);
-      delay(40);
-      break;
-  }
-
-  // Stop after completing turn
-  SetSpeeds(0, 0);
-  delay(30);
-
   lasttime = millis();   
 }
-
-// Helper function for PID tuning in the follow_segment function
-void adjustPIDForCurve(int proportional, int *base_speed, int *power_difference) {
-  // Adjust speed based on how sharp the curve is (indicated by proportional)
-  int abs_prop = abs(proportional);
-  
-  // For very sharp curves, reduce speed significantly
-  if (abs_prop > CURVE_SLOWDOWN_THRESHOLD) {
-    *base_speed = SHARP_CURVE_SPEED;
-  } 
-  // For moderate curves, reduce speed moderately
-  else if (abs_prop > CURVE_SLOWDOWN_THRESHOLD/2) {
-    *base_speed = MILD_CURVE_SPEED;
-  }
-  
-  // Adjust power difference for sharper response in curves
-  if (abs_prop > 500) {
-    *power_difference = (*power_difference * 12) / 10; // Increase by 20% for sharper turns
-  }
-}
-
-unsigned char times_length = 0;
-
-// The path variable will store the path that the robot has taken.  It
-// is stored as an array of characters, each of which represents the
-// turn that should be made at one intersection in the sequence:
-//  'L' for left
-//  'R' for right
-//  'S' for straight (going straight through an intersection)
-//  'B' for back (U-turn)
-//
-// Whenever the robot makes a U-turn, the path can be simplified by
-// removing the dead end.  The follow_next_turn() function checks for
-// this case every time it makes a turn, and it simplifies the path
-// appropriately.
 
 // This function decides which way to turn during the learning phase of
 // maze solving.  It uses the variables found_left, found_straight, and
@@ -437,8 +377,7 @@ unsigned char select_turn(unsigned char found_left, unsigned char found_straight
       return 'R';
     else
       return 'B';
-  }
-  else
+  }else
   {
     if (found_right)
       return 'R';
@@ -450,6 +389,26 @@ unsigned char select_turn(unsigned char found_left, unsigned char found_straight
       return 'B';
   }
 }
+
+// The path variable will store the path that the robot has taken.  It
+// is stored as an array of characters, each of which represents the
+// turn that should be made at one intersection in the sequence:
+//  'L' for left
+//  'R' for right
+//  'S' for straight (going straight through an intersection)
+//  'B' for back (U-turn)
+//
+// Whenever the robot makes a U-turn, the path can be simplified by
+// removing the dead end.  The follow_next_turn() function checks for
+// this case every time it makes a turn, and it simplifies the path
+// appropriately.
+
+
+
+
+
+unsigned char times_length = 0;
+
 
 // Path simplification.  The strategy is that whenever we encounter a
 // sequence xBx, we can simplify it by cutting out the dead end.  For
@@ -533,53 +492,70 @@ void loop() {
     // Drive straight a bit.  This helps us in case we entered the
     // intersection at an angle.
     // Note that we are slowing down - this prevents the robot
-    // // from tipping forward too much.
-    SetSpeeds(60, 60);
-    delay(30);
+    // from tipping forward too much.
+    SetSpeeds(30, 30);
+    delay(40);
 
+    // These variables record whether the robot has seen a line to the
+    // left, straight ahead, and right, whil examining the current
+    // intersection.
     unsigned char found_left = 0;
     unsigned char found_straight = 0;
     unsigned char found_right = 0;
 
-    // First intersection check (before creeping forward)
-    trs.readLine(sensorValues);
-    if (sensorValues[0] > INTERSECTION_THRESHOLD)
+    // Now read the sensors and check the intersection type.
+   trs.readLine(sensorValues);
+
+    // Check for left and right exits.
+    if (sensorValues[0] > 500)
       found_left = 1;
-    if (sensorValues[4] > INTERSECTION_THRESHOLD)
+    if (sensorValues[4] > 500)
       found_right = 1;
 
-    // Creep forward into the intersection for better detection
-    SetSpeeds(60, 60);
-    delay(40);
+      // Drive straight a bit more - this is enough to line up our
+      // wheels with the intersection.                                                                                                         // 40 -380
+    
+    SetSpeeds(20,20);
+    delay(100);
     SetSpeeds(0, 0);
-    delay(20);
+    delay(50);
 
-    // Second intersection check (after creeping forward)
+    // Check for a straight exit.
     trs.readLine(sensorValues);
-    if (sensorValues[0] > INTERSECTION_THRESHOLD)
-      found_left = 1;
-    if (sensorValues[4] > INTERSECTION_THRESHOLD)
-      found_right = 1;
-    if (sensorValues[1] > INTERSECTION_THRESHOLD || sensorValues[2] > INTERSECTION_THRESHOLD || sensorValues[3] > INTERSECTION_THRESHOLD)
+    if (sensorValues[1] > 500 || sensorValues[2] > 500 || sensorValues[3] > 500)
       found_straight = 1;
 
     // Check for the ending spot.
-    // if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
+    // If all three middle sensors are on dark black, we have
+    // solved the maze.
+    if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
+    {
+      // SetSpeeds(-40, 40);
+      // delay(500);
+      // SetSpeeds(40, -40);
+      // delay(1000);
+    //   if (sensorValues[0] > 500 && sensorValues[1] > 500 && sensorValues[2] > 500 && sensorValues[3] > 500 && sensorValues[4] > 500)
     // {
-    //   display.clearDisplay();
-    //   display.setTextSize(2);
-    //   display.setTextColor(WHITE);
-    //   display.setCursor(0,25);
-    //   display.println("Am gasit iesirea!");
-    //   display.display();
-    //   EEPROM.write(0, path_length);
-    //   for (int i = 1; i <= path_length; i++) {
-    //       EEPROM.write(i,path[i-1]);
-    //   }
     //   solved = 1;
     //   SetSpeeds(0, 0);
     //   break;
     // }
+
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(0,25);
+    display.println("Am gasit iesirea!");
+    display.display();
+    EEPROM.write(0, path_length);
+    for (int i = 1; i <= path_length; i++) {
+        EEPROM.write(i,path[i-1]);
+    }
+
+      solved = 1;
+      SetSpeeds(0, 0);
+      break;
+    }
 
     // Intersection identification is complete.
     // If the maze has been solved, we can follow the existing
@@ -590,15 +566,15 @@ void loop() {
     turn(dir);
 
     // Store the intersection in the path variable.
-    // path[path_length] = dir;
-    // path_length++;
+    path[path_length] = dir;
+    path_length++;
 
     // You should check to make sure that the path_length does not
     // exceed the bounds of the array.  We'll ignore that in this
     // example.
 
     // Simplify the learned path.
-    // simplify_path();
+    simplify_path();
 
     // Display the path on the LCD.
     // display_path();
@@ -652,14 +628,14 @@ void loop() {
 
     // Re-run the maze.  It's not necessary to identify the
     // intersections, so this loop is really simple.
-    // int i;
+    int i;
     for (i = 0; i < path_length; i++)
     {
       follow_segment();
 
       // Drive straight while slowing down, as before.
-      SetSpeeds(0, 0);
-      delay(100);
+      // SetSpeeds(0, 0);
+      // delay(100);
       SetSpeeds(30, 30);
       delay(100);
 
@@ -720,5 +696,3 @@ byte PCF8574Read()
   }
   return data;
 }
-
-// This function is used to generate a color wheel effect

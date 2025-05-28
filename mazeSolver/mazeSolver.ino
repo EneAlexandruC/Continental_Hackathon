@@ -199,7 +199,7 @@ void setup() {
 
 // PID constants - Ziegler-Nichols aggressive tuning to prevent oscillation
 #define KP 0.65   // Increased proportional gain for faster response
-#define KI 0.00015 // Reduced integral to prevent windup and oscillation
+#define KI 0.00020 // Reduced integral to prevent windup and oscillation
 #define KD 8.5    // Significantly increased derivative for strong damping
 
 // Threshold values for sensors
@@ -292,7 +292,7 @@ void follow_segment()
     int power_difference = (proportional * KP) + (integral * KI) + (derivative * KD);
     
     // Only learning mode, so always use max speed
-    base_speed = 220 - curve_speed_reduction;  // Slightly higher for more speed
+    base_speed = 200 - curve_speed_reduction;  // Slightly higher for more speed
     
     // Limit the power difference to prevent extreme turns
     int maximum = base_speed;
@@ -559,8 +559,8 @@ void loop() {
       found_right = 1;
 
     // Creep forward into the intersection for better detection
-    SetSpeeds(40,40);
-    delay(100);
+    SetSpeeds(80, 80);
+    delay(55);
     SetSpeeds(0, 0);
     delay(20);
 
